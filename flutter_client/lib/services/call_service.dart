@@ -52,6 +52,8 @@ class CallService extends ChangeNotifier {
   RTCVideoRenderer?
       _remoteRenderer; // not used for audio-only, but kept for future video
 
+  final List<RTCIceCandidate> _pendingCandidates = [];
+
   CallState state = CallState.idle;
   IncomingCall? currentCall;
   String? lastError;
@@ -137,12 +139,19 @@ class CallService extends ChangeNotifier {
     _socket!.on('ice_candidate', (data) async {
       if (_pc == null || data['candidate'] == null) return;
       final c = data['candidate'];
+      final cand = RTCIceCandidate(
+        c['candidate'],
+        c['sdpMid'],
+        c['sdpMLineIndex'],
+      );
+      // Buffer until remote description is set.
+      final remote = await _pc!.getRemoteDescription();
+      if (remote == null) {
+        _pendingCandidates.add(cand);
+        return;
+      }
       try {
-        await _pc!.addCandidate(RTCIceCandidate(
-          c['candidate'],
-          c['sdpMid'],
-          c['sdpMLineIndex'],
-        ));
+        await _pc!.addCandidate(cand);
       } catch (e) {
         debugPrint('[ICE] add failed: $e');
       }
@@ -342,6 +351,15 @@ class CallService extends ChangeNotifier {
     await _pc!.setRemoteDescription(
       RTCSessionDescription(sdp['sdp'], sdp['type']),
     );
+    // Drain any ICE candidates received before the offer.
+    while (_pendingCandidates.isNotEmpty) {
+      final c = _pendingCandidates.removeAt(0);
+      try {
+        await _pc!.addCandidate(c);
+      } catch (e) {
+        debugPrint('[ICE] buffered add failed: $e');
+      }
+    }
     final answer = await _pc!.createAnswer();
     await _pc!.setLocalDescription(answer);
     _socket!.emit('webrtc_answer', {

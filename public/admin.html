@@ -170,6 +170,7 @@ let micGain = null;
 let ttsGain = null;
 let mixDest = null;     // MediaStreamAudioDestinationNode → sent to peer
 let mixedTrack = null;
+let pendingCandidates = []; // ICE candidates received before remoteDescription is set
 
 const $  = id => document.getElementById(id);
 const log = (m, c='#94a3b8') => {
@@ -277,9 +278,19 @@ function connectSocket() {
     if (!pc) return;
     await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
     log('WebRTC answer received');
+    // Flush any ICE candidates that arrived before the answer.
+    while (pendingCandidates.length) {
+      const c = pendingCandidates.shift();
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); }
+      catch (e) { log('Buffered ICE add failed: ' + e.message, '#f87171'); }
+    }
   });
   socket.on('ice_candidate', async d => {
     if (!pc || !d.candidate) return;
+    if (!pc.remoteDescription || !pc.remoteDescription.type) {
+      pendingCandidates.push(d.candidate);
+      return;
+    }
     try { await pc.addIceCandidate(new RTCIceCandidate(d.candidate)); }
     catch (e) { log('ICE add failed: ' + e.message, '#f87171'); }
   });
@@ -455,6 +466,7 @@ async function startWebRTC(callId) {
 function cleanupRTC() {
   if (pc) { pc.close(); pc = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  pendingCandidates = [];
   try { mixedTrack?.stop(); } catch {}
   mixedTrack = null; mixDest = null; micSource = null; micGain = null; ttsGain = null;
   if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; }
