@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoCall Backend</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 2.5rem;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      background: #22c55e22;
+      color: #22c55e;
+      border: 1px solid #22c55e55;
+      border-radius: 99px;
+      padding: 4px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+    }
+    h1 { font-size: 1.75rem; margin-bottom: .5rem; }
+    p  { color: #94a3b8; font-size: 14px; margin-bottom: 2rem; line-height: 1.6; }
+    .endpoint {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: .75rem 1rem;
+      margin-bottom: .75rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      text-align: left;
+    }
+    .method {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      min-width: 44px;
+      text-align: center;
+    }
+    .get  { background: #0284c722; color: #38bdf8; }
+    .post { background: #16a34a22; color: #4ade80; }
+    .path { font-family: monospace; font-size: 13px; color: #cbd5e1; }
+    #stats { margin-top: 2rem; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">● Server Online</div>
+    <h1>AutoCall Backend</h1>
+    <p>Smart Customer Support Auto-Call System<br>WebRTC + Socket.io + Node.js</p>
+
+    <div class="endpoint">
+      <span class="method post">POST</span>
+      <span class="path">/api/auth/login</span>
+    </div>
+    <div class="endpoint">
+      <span class="method get">GET</span>
+      <span class="path">/api/ice-servers</span>
+    </div>
+    <div class="endpoint">
+      <span class="method post">POST</span>
+      <span class="path">/api/calls/initiate</span>
+    </div>
+    <div class="endpoint">
+      <span class="method get">GET</span>
+      <span class="path">/api/users/emi-due</span>
+    </div>
+    <div class="endpoint">
+      <span class="method get">GET</span>
+      <span class="path">/health</span>
+    </div>
+
+    <div id="stats">Loading stats…</div>
+  </div>
+
+  <script>
+    async function loadStats() {
+      try {
+        const r = await fetch('/health');
+        const d = await r.json();
+        document.getElementById('stats').textContent =
+          `Uptime: ${d.uptime}s  •  Online users: ${d.onlineUsers}  •  Active calls: ${d.activeCalls}`;
+      } catch {
+        document.getElementById('stats').textContent = 'Could not reach /health';
+      }
+    }
+    loadStats();
+    setInterval(loadStats, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: autocall-backend
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false          # set manually in Render dashboard
+      - key: STUN_URL_1
+        value: stun:stun.l.google.com:19302
+      - key: STUN_URL_2
+        value: stun:stun1.l.google.com:19302
+      # TURN — recommended for production (set in dashboard)
+      - key: TURN_URL
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
+      # FCM wake-up push (optional)
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      # Disk for JSON data (DB files survive redeploys)
+    disk:
+      name: autocall-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    healthCheckPath: /health
