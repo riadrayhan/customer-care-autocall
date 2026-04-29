@@ -101,9 +101,8 @@
       <div id="call-status">No active call</div>
       <div id="call-controls" class="hidden">
         <div style="margin-bottom:.5rem">
-          <label style="font-size:12px;color:#94a3b8">TTS message (Bangla / English)</label>
-          <textarea id="ttsText" rows="2" style="width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;padding:8px 10px;border-radius:6px;font-size:13px;resize:vertical;margin-top:.25rem"
-            placeholder="যেমন: স্যার আপনার ২টা EMI বাকি আছে">স্যার আপনার ২টা EMI বাকি আছে</textarea>
+          <label style="font-size:12px;color:#94a3b8">Auto-message (played to user on answer)</label>
+          <textarea id="ttsText" rows="3" style="width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;padding:8px 10px;border-radius:6px;font-size:13px;resize:vertical;margin-top:.25rem">স্যার আপনার ২টা EMI বাকি আছেস্যার স্যার আপনার ২টা EMI বাকি আছেআপনার ২টা EMI বাকি আছেস্যার আপনার ২টা EMI বাকি আছে</textarea>
           <div class="row" style="margin:.4rem 0">
             <label style="min-width:55px">Lang</label>
             <select id="ttsLang" style="width:auto;flex:0 0 110px">
@@ -111,9 +110,12 @@
               <option value="en">English</option>
               <option value="hi">Hindi</option>
             </select>
-            <button id="speakBtn" class="success" onclick="speakTTS()" style="flex:1">🔊 Speak to user</button>
+            <button id="speakBtn" class="success" onclick="speakTTS()" style="flex:1">🔊 Speak now</button>
           </div>
-          <div style="display:flex;gap:.4rem;align-items:center;font-size:11px;color:#94a3b8">
+          <div style="display:flex;gap:.4rem;align-items:center;font-size:11px;color:#94a3b8;flex-wrap:wrap">
+            <input type="checkbox" id="autoSpeak" checked style="width:auto"/>
+            <label for="autoSpeak">Auto-speak when user answers</label>
+            <span style="flex-basis:100%"></span>
             <input type="checkbox" id="muteMic" onchange="toggleMicMute()" style="width:auto"/>
             <label for="muteMic">Mute my mic while TTS plays</label>
           </div>
@@ -437,6 +439,11 @@ async function startWebRTC(callId) {
     log('PC state: ' + pc.connectionState);
     if (pc.connectionState === 'failed') socket.emit('ice_restart', { callId });
     if (pc.connectionState === 'connected') {
+      // Auto-speak the configured message once the audio path is established.
+      if ($('autoSpeak')?.checked) {
+        // Small delay to ensure remote audio pipeline is ready on the user side.
+        setTimeout(() => speakTTS().catch(() => {}), 800);
+      }
       // Verify outbound audio is actually flowing.
       setTimeout(async () => {
         if (!pc) return;

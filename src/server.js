@@ -103,7 +103,7 @@ app.get('/api/tts', async (req, res) => {
   const text = String(req.query.text || '').trim();
   const lang = String(req.query.lang || 'bn').trim();
   if (!text) return res.status(400).json({ error: 'text required' });
-  if (text.length > 200) return res.status(400).json({ error: 'text too long (max 200 chars)' });
+  if (text.length > 500) return res.status(400).json({ error: 'text too long (max 500 chars)' });
   try {
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${encodeURIComponent(lang)}&client=tw-ob&ttsspeed=1`;
     const r = await fetch(url, {
