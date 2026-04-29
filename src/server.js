@@ -95,6 +95,39 @@ async function fetchMeteredIceServers() {
   }
 }
 
+/** GET /api/tts?text=...&lang=bn — proxy Google Translate TTS (no API key)
+ *  Returns audio/mpeg. Used by admin panel to speak Bengali messages
+ *  into the WebRTC call.
+ */
+app.get('/api/tts', async (req, res) => {
+  const text = String(req.query.text || '').trim();
+  const lang = String(req.query.lang || 'bn').trim();
+  if (!text) return res.status(400).json({ error: 'text required' });
+  if (text.length > 200) return res.status(400).json({ error: 'text too long (max 200 chars)' });
+  try {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${encodeURIComponent(lang)}&client=tw-ob&ttsspeed=1`;
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+        'Referer': 'https://translate.google.com/',
+        'Accept': 'audio/mpeg, */*',
+      },
+    });
+    if (!r.ok) {
+      logger.warn('TTS upstream error', { status: r.status });
+      return res.status(502).json({ error: `TTS upstream HTTP ${r.status}` });
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(buf);
+  } catch (e) {
+    logger.error('TTS proxy failed', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/ice-servers', async (_req, res) => {
   const metered = await fetchMeteredIceServers();
   if (metered && metered.length > 0) {

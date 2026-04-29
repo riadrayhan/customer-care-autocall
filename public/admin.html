@@ -100,6 +100,24 @@
       <h2>Live Call</h2>
       <div id="call-status">No active call</div>
       <div id="call-controls" class="hidden">
+        <div style="margin-bottom:.5rem">
+          <label style="font-size:12px;color:#94a3b8">TTS message (Bangla / English)</label>
+          <textarea id="ttsText" rows="2" style="width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;padding:8px 10px;border-radius:6px;font-size:13px;resize:vertical;margin-top:.25rem"
+            placeholder="যেমন: স্যার আপনার ২টা EMI বাকি আছে">স্যার আপনার ২টা EMI বাকি আছে</textarea>
+          <div class="row" style="margin:.4rem 0">
+            <label style="min-width:55px">Lang</label>
+            <select id="ttsLang" style="width:auto;flex:0 0 110px">
+              <option value="bn" selected>Bangla</option>
+              <option value="en">English</option>
+              <option value="hi">Hindi</option>
+            </select>
+            <button id="speakBtn" class="success" onclick="speakTTS()" style="flex:1">🔊 Speak to user</button>
+          </div>
+          <div style="display:flex;gap:.4rem;align-items:center;font-size:11px;color:#94a3b8">
+            <input type="checkbox" id="muteMic" onchange="toggleMicMute()" style="width:auto"/>
+            <label for="muteMic">Mute my mic while TTS plays</label>
+          </div>
+        </div>
         <button class="danger" onclick="endCall()" style="width:100%">End Call</button>
       </div>
       <audio id="remoteAudio" autoplay></audio>
@@ -144,6 +162,14 @@ let pc = null;          // RTCPeerConnection (admin side)
 let localStream = null; // mic
 let currentCall = null; // { callId, userId }
 let iceServers = [];
+
+// TTS / audio-mixing
+let audioCtx = null;
+let micSource = null;
+let micGain = null;
+let ttsGain = null;
+let mixDest = null;     // MediaStreamAudioDestinationNode → sent to peer
+let mixedTrack = null;
 
 const $  = id => document.getElementById(id);
 const log = (m, c='#94a3b8') => {
@@ -331,7 +357,9 @@ function endCall() {
 async function startWebRTC(callId) {
   pc = new RTCPeerConnection({ iceServers });
 
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  // Build mix bus: mic + TTS → single track to user
+  buildMixBus();
+  pc.addTrack(mixedTrack, mixDest.stream);
 
   pc.ontrack = e => {
     $('remoteAudio').srcObject = e.streams[0];
@@ -356,7 +384,67 @@ async function startWebRTC(callId) {
 function cleanupRTC() {
   if (pc) { pc.close(); pc = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  try { mixedTrack?.stop(); } catch {}
+  mixedTrack = null; mixDest = null; micSource = null; micGain = null; ttsGain = null;
+  if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; }
   $('remoteAudio').srcObject = null;
+}
+
+//─────────────────────────────────────────────────────────────────────
+// Audio mix bus (mic + TTS → WebRTC track)
+//─────────────────────────────────────────────────────────────────────
+function buildMixBus() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  mixDest  = audioCtx.createMediaStreamDestination();
+
+  micSource = audioCtx.createMediaStreamSource(localStream);
+  micGain   = audioCtx.createGain();
+  micGain.gain.value = 1.0;
+  micSource.connect(micGain).connect(mixDest);
+
+  ttsGain = audioCtx.createGain();
+  ttsGain.gain.value = 1.0;
+  ttsGain.connect(mixDest);
+
+  mixedTrack = mixDest.stream.getAudioTracks()[0];
+}
+
+function toggleMicMute() {
+  if (!micGain) return;
+  micGain.gain.value = $('muteMic').checked ? 0 : 1;
+}
+
+async function speakTTS() {
+  const text = $('ttsText').value.trim();
+  const lang = $('ttsLang').value;
+  if (!text) return;
+  if (!currentCall || !audioCtx) {
+    alert('Start a call first.');
+    return;
+  }
+  const btn = $('speakBtn');
+  btn.disabled = true; btn.textContent = '⏳ Loading…';
+  try {
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const r = await fetch(`/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}`);
+    if (!r.ok) throw new Error('TTS HTTP ' + r.status);
+    const buf = await r.arrayBuffer();
+    const audioBuf = await audioCtx.decodeAudioData(buf);
+    const src = audioCtx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(ttsGain);
+    btn.textContent = '🔊 Speaking…';
+    src.start();
+    src.onended = () => {
+      btn.disabled = false; btn.textContent = '🔊 Speak to user';
+      log('TTS finished', '#4ade80');
+    };
+    log(`TTS playing: "${text.slice(0,40)}${text.length>40?'…':''}"`, '#4ade80');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '🔊 Speak to user';
+    log('TTS error: ' + e.message, '#f87171');
+    alert('TTS failed: ' + e.message);
+  }
 }
 
 // Auto-resume session
