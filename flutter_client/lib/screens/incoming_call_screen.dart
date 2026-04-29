@@ -20,7 +20,13 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (!mounted) return;
     final s = widget.service.state;
     if (s == CallState.idle || s == CallState.ended) {
-      Navigator.of(context).maybePop();
+      // Schedule pop after frame; route may be unmounted already.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+      });
     }
     setState(() {});
   }

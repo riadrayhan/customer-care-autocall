@@ -238,11 +238,34 @@ function connectSocket() {
   socket.on('user_online',  d => { log(`▲ user online: ${d.userId}`, '#4ade80'); loadUsers(); });
   socket.on('user_offline', d => { log(`▼ user offline: ${d.userId}`, '#94a3b8'); loadUsers(); });
 
-  socket.on('call_ringing',  d => { setCallStatus('ringing', `Ringing ${d.userId}…`); log(`📞 Ringing ${d.userId}`, '#facc15'); });
+  socket.on('call_ringing',  d => {
+    // For bulk-call (server-initiated), no currentCall set yet — adopt it.
+    if (!currentCall) currentCall = { callId: d.callId, userId: d.userId };
+    setCallStatus('ringing', `Ringing ${d.userId}…`);
+    log(`📞 Ringing ${d.userId} [${d.callId.slice(0,8)}]`, '#facc15');
+  });
   socket.on('call_queued',   d => log(`⏸ Queued ${d.userId} (offline)`, '#94a3b8'));
-  socket.on('call_answered', d => {
+  socket.on('call_answered', async d => {
     setCallStatus('active', `Connected to ${d.userId}`);
     log(`✓ Answered by ${d.userId}`, '#4ade80');
+    if (!currentCall) currentCall = { callId: d.callId, userId: d.userId };
+    // Ensure mic + audio bus exist (may be missing if call was triggered via REST/bulk).
+    try {
+      if (!localStream) {
+        log('Acquiring mic for incoming-answered call…', '#94a3b8');
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false,
+        });
+        buildMixBus();
+      }
+    } catch (e) {
+      log('Mic acquire failed: ' + e.message, '#f87171');
+      alert('Microphone permission required to talk: ' + e.message);
+      return;
+    }
     startWebRTC(currentCall.callId);
   });
   socket.on('call_missed',   d => { setCallStatus('idle', 'No active call'); cleanupRTC(); log(`✗ Missed: ${d.reason}`, '#f87171'); });
