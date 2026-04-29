@@ -146,11 +146,16 @@ class CallService extends ChangeNotifier {
 
   Future<void> acceptCall() async {
     if (currentCall == null) return;
+    if (state != CallState.ringing) {
+      debugPrint('[Call] acceptCall ignored, state=$state');
+      return;
+    }
     state = CallState.connecting;
     notifyListeners();
 
     await _createPeerConnection();
     _socket!.emit('call_answer', {'callId': currentCall!.callId});
+    debugPrint('[Call] call_answer emitted for ${currentCall!.callId}');
   }
 
   void rejectCall() {
@@ -268,8 +273,6 @@ class CallService extends ChangeNotifier {
         for (final t in _remoteStream!.getAudioTracks()) {
           try {
             t.enabled = true;
-            // ignore: deprecated_member_use
-            t.setVolume(1.0);
           } catch (_) {}
         }
         _enableSpeakerphone();
@@ -279,6 +282,8 @@ class CallService extends ChangeNotifier {
 
     _pc!.onIceCandidate = (RTCIceCandidate c) {
       if (c.candidate == null || currentCall == null) return;
+      debugPrint(
+          '[ICE] local candidate: ${c.candidate?.substring(0, c.candidate!.length > 60 ? 60 : c.candidate!.length)}');
       _socket!.emit('ice_candidate', {
         'callId': currentCall!.callId,
         'candidate': {
@@ -287,6 +292,16 @@ class CallService extends ChangeNotifier {
           'sdpMLineIndex': c.sdpMLineIndex,
         },
       });
+    };
+
+    _pc!.onIceConnectionState = (s) {
+      debugPrint('[ICE] connection state: $s');
+    };
+    _pc!.onIceGatheringState = (s) {
+      debugPrint('[ICE] gathering state: $s');
+    };
+    _pc!.onSignalingState = (s) {
+      debugPrint('[Signaling] state: $s');
     };
 
     _pc!.onConnectionState = (RTCPeerConnectionState s) {
