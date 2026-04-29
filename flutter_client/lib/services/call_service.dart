@@ -248,6 +248,9 @@ class CallService extends ChangeNotifier {
     };
     _pc = await createPeerConnection(config);
 
+    // Configure audio session BEFORE adding tracks so playback routes correctly.
+    await _configureAudioSession();
+
     // Add a local audio track (so PeerConnection negotiates audio); user can speak back too.
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
@@ -260,10 +263,17 @@ class CallService extends ChangeNotifier {
     _pc!.onTrack = (RTCTrackEvent e) {
       if (e.streams.isNotEmpty) {
         _remoteStream = e.streams[0];
-        // flutter_webrtc will auto-play audio tracks when attached to a renderer
-        // OR when the track is simply received and not muted. For audio-only,
-        // we don't need a renderer — the OS audio routing plays it.
-        debugPrint('[WebRTC] Remote audio track received');
+        // Ensure remote audio tracks are enabled & route to loud speaker so
+        // the user actually hears the admin / TTS voice.
+        for (final t in _remoteStream!.getAudioTracks()) {
+          try {
+            t.enabled = true;
+            // ignore: deprecated_member_use
+            t.setVolume(1.0);
+          } catch (_) {}
+        }
+        _enableSpeakerphone();
+        debugPrint('[WebRTC] Remote audio track received & routed to speaker');
       }
     };
 
@@ -303,6 +313,24 @@ class CallService extends ChangeNotifier {
       'sdp': {'sdp': answer.sdp, 'type': answer.type},
     });
     debugPrint('[WebRTC] Answer sent');
+  }
+
+  /// Set up the OS audio mode for a voice call (full-duplex, AEC on, loud
+  /// speaker route) so the remote audio is audible.
+  Future<void> _configureAudioSession() async {
+    try {
+      await Helper.setSpeakerphoneOn(true);
+    } catch (e) {
+      debugPrint('[Audio] setSpeakerphoneOn failed: $e');
+    }
+  }
+
+  Future<void> _enableSpeakerphone() async {
+    try {
+      await Helper.setSpeakerphoneOn(true);
+    } catch (e) {
+      debugPrint('[Audio] enable speakerphone failed: $e');
+    }
   }
 
   Future<void> _cleanupRtc() async {
