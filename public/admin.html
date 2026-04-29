@@ -312,6 +312,11 @@ async function callUser(userId) {
     alert('Microphone access required: ' + e.message); return;
   }
 
+  // Build the audio mix bus NOW while we still have a user-gesture context
+  // (otherwise AudioContext stays suspended and the outgoing track is silent).
+  buildMixBus();
+  try { if (audioCtx.state === 'suspended') await audioCtx.resume(); } catch {}
+
   // Generate callId via socket initiate
   socket.emit('initiate_call', { userId, autoMessage: true, callerName: admin.name });
   // We need the callId — the server emits call_ringing back; capture it.
@@ -357,8 +362,11 @@ function endCall() {
 async function startWebRTC(callId) {
   pc = new RTCPeerConnection({ iceServers });
 
-  // Build mix bus: mic + TTS → single track to user
-  buildMixBus();
+  // Mix bus already built in callUser() — fall back if missing.
+  if (!mixedTrack) buildMixBus();
+  if (audioCtx && audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch (e) { log('AudioCtx resume err: '+e.message,'#f87171'); }
+  }
   pc.addTrack(mixedTrack, mixDest.stream);
 
   pc.ontrack = e => {
