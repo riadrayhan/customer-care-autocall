@@ -72,6 +72,11 @@ class CallService extends ChangeNotifier {
     await Permission.microphone.request();
     await Permission.notification.request();
 
+    // Clear any leftover CallKit notifications from previous sessions.
+    try {
+      await CallKitHelper.endAll();
+    } catch (_) {}
+
     _listenToCallKit();
 
     _socket = IO.io(
@@ -91,11 +96,25 @@ class CallService extends ChangeNotifier {
     _socket!
         .on('registered', (_) => debugPrint('[Socket] registered as $userId'));
 
-    _socket!.on('incoming_call', (data) {
-      currentCall = IncomingCall.fromJson(Map<String, dynamic>.from(data));
+    _socket!.on('incoming_call', (data) async {
+      final incoming = IncomingCall.fromJson(Map<String, dynamic>.from(data));
+      // De-duplicate: if same call already showing or already in call, ignore.
+      if (currentCall != null && currentCall!.callId == incoming.callId) {
+        debugPrint(
+            '[Call] duplicate incoming_call ignored: ${incoming.callId}');
+        return;
+      }
+      if (state == CallState.connecting || state == CallState.active) {
+        debugPrint('[Call] busy, rejecting new call ${incoming.callId}');
+        _socket!.emit('call_reject', {'callId': incoming.callId});
+        return;
+      }
+      // Clean up any stale CallKit UI from previous calls.
+      await CallKitHelper.endAll();
+
+      currentCall = incoming;
       state = CallState.ringing;
       lastError = null;
-      // Show native incoming-call UI (ringtone + lockscreen).
       CallKitHelper.showIncoming(
         callId: currentCall!.callId,
         callerName: currentCall!.callerName,
