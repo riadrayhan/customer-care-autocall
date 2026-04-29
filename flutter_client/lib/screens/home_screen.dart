@@ -56,8 +56,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onCallStateChanged() {
     final s = _service!;
-    if (s.state == CallState.ringing && s.currentCall != null) {
+    // Show native CallKit only while ringing. Push Flutter in-call UI after
+    // the user accepts (connecting/active) so we don't show two screens.
+    if ((s.state == CallState.connecting || s.state == CallState.active) &&
+        s.currentCall != null &&
+        ModalRoute.of(context)?.settings.name != '/in-call') {
       Navigator.of(context).push(MaterialPageRoute(
+        settings: const RouteSettings(name: '/in-call'),
         builder: (_) => IncomingCallScreen(service: s),
       ));
     }

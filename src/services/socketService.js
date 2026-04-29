@@ -188,16 +188,21 @@ function setupSocketHandlers(io) {
     // WebRTC signaling (all go through call room)
     socket.on('webrtc_offer', (data = {}) => {
       if (!validate(socket, data, ['callId', 'sdp'])) return;
+      // Ensure the sending admin is in the call room so it receives the
+      // peer's webrtc_answer / ice_candidate replies.
+      socket.join(callRoom(data.callId));
       socket.to(callRoom(data.callId)).emit('webrtc_offer', { callId: data.callId, sdp: data.sdp });
     });
 
     socket.on('webrtc_answer', (data = {}) => {
       if (!validate(socket, data, ['callId', 'sdp'])) return;
+      socket.join(callRoom(data.callId));
       socket.to(callRoom(data.callId)).emit('webrtc_answer', { callId: data.callId, sdp: data.sdp });
     });
 
     socket.on('ice_candidate', (data = {}) => {
       if (!validate(socket, data, ['callId', 'candidate'])) return;
+      socket.join(callRoom(data.callId));
       socket.to(callRoom(data.callId)).emit('ice_candidate', { callId: data.callId, candidate: data.candidate });
     });
 
