@@ -12,7 +12,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _serverCtrl = TextEditingController(
-    text: 'http://10.0.2.2:3000', // Android emulator → host localhost
+    text:
+        'http://192.168.68.61:3000', // PC LAN IP — change to Render URL for prod
   );
   final _userIdCtrl = TextEditingController(text: 'user-001');
   CallService? _service;

@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -49,16 +50,6 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
-        <!-- flutter_callkit_incoming -->
-        <receiver
-            android:name="com.hiennv.flutter_callkit_incoming.CallkitIncomingBroadcastReceiver"
-            android:exported="false"/>
-
-        <service
-            android:name="com.hiennv.flutter_callkit_incoming.CallkitIncomingActivity$IncomingCallService"
-            android:exported="false"
-            android:foregroundServiceType="phoneCall|microphone"/>
 
         <meta-data
             android:name="flutterEmbedding"
