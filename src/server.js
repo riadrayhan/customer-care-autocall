@@ -65,8 +65,41 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: Math.floor(process.uptime()), ...callManager.getStats() });
 });
 
-/** GET /api/ice-servers — Flutter fetches this on startup */
-app.get('/api/ice-servers', (_req, res) => {
+/** GET /api/ice-servers — Flutter fetches this on startup
+ *  Priority:
+ *    1. METERED_API_KEY → fetch fresh credentials from Metered (cached 1h)
+ *    2. TURN_URL/USERNAME/CREDENTIAL static env vars
+ *    3. STUN-only fallback
+ */
+let _meteredCache = { servers: null, ts: 0 };
+const METERED_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function fetchMeteredIceServers() {
+  if (_meteredCache.servers && Date.now() - _meteredCache.ts < METERED_TTL_MS) {
+    return _meteredCache.servers;
+  }
+  const apiKey = process.env.METERED_API_KEY;
+  const subdomain = process.env.METERED_SUBDOMAIN || 'customerapp';
+  if (!apiKey) return null;
+  try {
+    const url = `https://${subdomain}.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const servers = await res.json();
+    _meteredCache = { servers, ts: Date.now() };
+    logger.info('Metered TURN credentials refreshed', { count: servers.length });
+    return servers;
+  } catch (e) {
+    logger.error('Metered TURN fetch failed', { error: e.message });
+    return null;
+  }
+}
+
+app.get('/api/ice-servers', async (_req, res) => {
+  const metered = await fetchMeteredIceServers();
+  if (metered && metered.length > 0) {
+    return res.json({ iceServers: metered });
+  }
   const servers = [
     { urls: process.env.STUN_URL_1 || 'stun:stun.l.google.com:19302' },
     { urls: process.env.STUN_URL_2 || 'stun:stun1.l.google.com:19302' },
