@@ -305,19 +305,35 @@ async function loadUsers() {
 //─────────────────────────────────────────────────────────────────────
 async function callUser(userId) {
   if (currentCall) return alert('Already in a call');
-  // Acquire mic FIRST (browser policy)
+
+  // 1) Create AudioContext SYNCHRONOUSLY in the click handler so it's not
+  //    blocked by browser autoplay policy (any await before this would lose
+  //    the user-gesture context and the context would stay suspended/silent).
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  try { if (audioCtx.state === 'suspended') await audioCtx.resume(); } catch {}
+  log(`AudioCtx state: ${audioCtx.state}`, '#94a3b8');
+
+  // 2) Acquire mic
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
   } catch (e) {
     alert('Microphone access required: ' + e.message); return;
   }
 
-  // Build the audio mix bus NOW while we still have a user-gesture context
-  // (otherwise AudioContext stays suspended and the outgoing track is silent).
+  // 3) Build the mix bus (mic + TTS → single outgoing track)
   buildMixBus();
-  try { if (audioCtx.state === 'suspended') await audioCtx.resume(); } catch {}
+  log(`Mix bus ready, track=${mixedTrack ? mixedTrack.readyState : 'none'}`, '#4ade80');
 
-  // Generate callId via socket initiate
+  // 4) Generate callId via socket initiate
   socket.emit('initiate_call', { userId, autoMessage: true, callerName: admin.name });
   // We need the callId — the server emits call_ringing back; capture it.
   const onRing = d => {
@@ -381,6 +397,25 @@ async function startWebRTC(callId) {
   pc.onconnectionstatechange = () => {
     log('PC state: ' + pc.connectionState);
     if (pc.connectionState === 'failed') socket.emit('ice_restart', { callId });
+    if (pc.connectionState === 'connected') {
+      // Verify outbound audio is actually flowing.
+      setTimeout(async () => {
+        if (!pc) return;
+        try {
+          const stats = await pc.getStats();
+          let bytesSent = 0;
+          stats.forEach(r => {
+            if (r.type === 'outbound-rtp' && r.kind === 'audio') {
+              bytesSent = r.bytesSent || 0;
+            }
+          });
+          log(`Outbound audio bytes after 3s: ${bytesSent}`, bytesSent > 0 ? '#4ade80' : '#f87171');
+          if (bytesSent === 0) {
+            log('No audio leaving browser! Check mic / AudioContext.', '#f87171');
+          }
+        } catch {}
+      }, 3000);
+    }
   };
 
   const offer = await pc.createOffer({ offerToReceiveAudio: true });
@@ -402,7 +437,10 @@ function cleanupRTC() {
 // Audio mix bus (mic + TTS → WebRTC track)
 //─────────────────────────────────────────────────────────────────────
 function buildMixBus() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (mixedTrack && mixedTrack.readyState === 'live') return; // already built
   mixDest  = audioCtx.createMediaStreamDestination();
 
   micSource = audioCtx.createMediaStreamSource(localStream);

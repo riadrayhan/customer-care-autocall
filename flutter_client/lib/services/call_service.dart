@@ -319,6 +319,24 @@ class CallService extends ChangeNotifier {
   /// speaker route) so the remote audio is audible.
   Future<void> _configureAudioSession() async {
     try {
+      // Android: switch to communication mode so WebRTC audio uses the
+      // VOICE_CALL stream (loud, full duplex, with AEC).
+      await Helper.setAndroidAudioConfiguration(
+        AndroidAudioConfiguration(
+          manageAudioFocus: true,
+          androidAudioMode: AndroidAudioMode.inCommunication,
+          androidAudioFocusMode: AndroidAudioFocusMode.gain,
+          androidAudioStreamType: AndroidAudioStreamType.voiceCall,
+          androidAudioAttributesUsageType:
+              AndroidAudioAttributesUsageType.voiceCommunication,
+          androidAudioAttributesContentType:
+              AndroidAudioAttributesContentType.speech,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[Audio] setAndroidAudioConfiguration failed: $e');
+    }
+    try {
       await Helper.setSpeakerphoneOn(true);
     } catch (e) {
       debugPrint('[Audio] setSpeakerphoneOn failed: $e');
