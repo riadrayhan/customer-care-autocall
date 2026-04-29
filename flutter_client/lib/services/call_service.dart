@@ -269,6 +269,8 @@ class CallService extends ChangeNotifier {
     final config = {
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
+      // Force TURN relay so the call works across different networks / NATs.
+      'iceTransportPolicy': 'relay',
     };
     _pc = await createPeerConnection(config);
 

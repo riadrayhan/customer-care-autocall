@@ -399,7 +399,12 @@ function endCall() {
 // WebRTC (admin sends mic → Flutter user listens)
 //─────────────────────────────────────────────────────────────────────
 async function startWebRTC(callId) {
-  pc = new RTCPeerConnection({ iceServers });
+  pc = new RTCPeerConnection({
+    iceServers,
+    // Force TURN relay so it works across mobile data / different networks /
+    // restrictive NAT / Windows firewall blocking host UDP candidates.
+    iceTransportPolicy: 'relay',
+  });
 
   // Mix bus already built in callUser() — fall back if missing.
   if (!mixedTrack) buildMixBus();
