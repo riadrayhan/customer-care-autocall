@@ -137,11 +137,24 @@ app.get('/api/ice-servers', async (_req, res) => {
     { urls: process.env.STUN_URL_1 || 'stun:stun.l.google.com:19302' },
     { urls: process.env.STUN_URL_2 || 'stun:stun1.l.google.com:19302' },
   ];
-  if (process.env.TURN_URL) servers.push({
-    urls      : process.env.TURN_URL,
-    username  : process.env.TURN_USERNAME,
-    credential: process.env.TURN_CREDENTIAL,
-  });
+  // Static TURN — if TURN_USERNAME/TURN_CREDENTIAL are set, expose Metered's
+  // four standard transports (UDP, TCP, TLS) so the client can pick whichever
+  // gets through the user's firewall.
+  if (process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+    const username   = process.env.TURN_USERNAME;
+    const credential = process.env.TURN_CREDENTIAL;
+    if (process.env.TURN_URL) {
+      servers.push({ urls: process.env.TURN_URL, username, credential });
+    } else {
+      // Default to Metered global relay set
+      servers.push(
+        { urls: 'turn:global.relay.metered.ca:80',                username, credential },
+        { urls: 'turn:global.relay.metered.ca:80?transport=tcp',  username, credential },
+        { urls: 'turn:global.relay.metered.ca:443',               username, credential },
+        { urls: 'turns:global.relay.metered.ca:443?transport=tcp',username, credential },
+      );
+    }
+  }
   res.json({ iceServers: servers });
 });
 

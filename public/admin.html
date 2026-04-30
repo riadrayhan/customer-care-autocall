@@ -384,13 +384,22 @@ async function callUser(userId) {
 
 async function emiAutoCall() {
   if (!confirm('Call ALL users with EMI due today/tomorrow?')) return;
-  const r = await fetch('/api/calls/emi-auto-call', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    body: JSON.stringify({ daysAhead: 1 })
-  });
-  const d = await r.json();
-  log(`Bulk EMI call: ${d.count} users`, '#4ade80');
+  try {
+    const r = await fetch('/api/calls/emi-auto-call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ daysAhead: 1 })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      log(`Bulk EMI call FAILED (HTTP ${r.status}): ${d.error || 'unknown'}`, '#f87171');
+      if (r.status === 401) { alert('Session expired. Please login again.'); logout(); }
+      return;
+    }
+    log(`Bulk EMI call: ${d.count ?? 0} users (${d.message || 'fired'})`, '#4ade80');
+  } catch (e) {
+    log('Bulk EMI call error: ' + e.message, '#f87171');
+  }
 }
 
 function setCallStatus(state, text) {
@@ -412,11 +421,13 @@ function endCall() {
 // WebRTC (admin sends mic → Flutter user listens)
 //─────────────────────────────────────────────────────────────────────
 async function startWebRTC(callId) {
+  // Default ICE policy 'all' — uses host/srflx candidates first, falls back
+  // to TURN relay when available. Forcing 'relay' without a configured TURN
+  // server produces ZERO candidates and leaves the call stuck on
+  // "Connecting…" forever with no audio.
   pc = new RTCPeerConnection({
     iceServers,
-    // Force TURN relay so it works across mobile data / different networks /
-    // restrictive NAT / Windows firewall blocking host UDP candidates.
-    iceTransportPolicy: 'relay',
+    iceTransportPolicy: 'all',
   });
 
   // Mix bus already built in callUser() — fall back if missing.

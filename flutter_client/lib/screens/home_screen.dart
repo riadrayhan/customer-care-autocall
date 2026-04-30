@@ -13,7 +13,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _serverCtrl = TextEditingController(
     text:
-        'http://192.168.68.61:3000', // PC LAN IP — change to Render URL for prod
+        'http://192.168.68.96:3000', // PC LAN IP — change to Render URL for prod
   );
   final _userIdCtrl = TextEditingController(text: 'user-001');
   CallService? _service;
@@ -56,9 +56,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onCallStateChanged() {
     final s = _service!;
-    // Show native CallKit only while ringing. Push Flutter in-call UI after
-    // the user accepts (connecting/active) so we don't show two screens.
-    if ((s.state == CallState.connecting || s.state == CallState.active) &&
+    // Push the in-app call screen as soon as the call enters ringing,
+    // connecting, or active state. This guarantees the user sees a UI even
+    // if CallKit's native popup is suppressed (some Android OEMs block
+    // full-screen intents while the app is foregrounded).
+    final inCall = s.state == CallState.ringing ||
+        s.state == CallState.connecting ||
+        s.state == CallState.active;
+    if (inCall &&
         s.currentCall != null &&
         ModalRoute.of(context)?.settings.name != '/in-call') {
       Navigator.of(context).push(MaterialPageRoute(

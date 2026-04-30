@@ -275,11 +275,14 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> _createPeerConnection() async {
+    // Default ICE policy 'all' — uses host/srflx candidates first, falls back
+    // to TURN relay when available. Forcing 'relay' without a configured TURN
+    // server produces zero candidates and leaves the call stuck on
+    // "Connecting…" with no audio.
     final config = {
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
-      // Force TURN relay so the call works across different networks / NATs.
-      'iceTransportPolicy': 'relay',
+      'iceTransportPolicy': 'all',
     };
     _pc = await createPeerConnection(config);
 
