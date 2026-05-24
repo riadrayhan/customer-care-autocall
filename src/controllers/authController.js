@@ -9,7 +9,7 @@ const router = express.Router();
 const sign = admin => jwt.sign(
   { id: admin.id, username: admin.username, role: admin.role, name: admin.name },
   process.env.JWT_SECRET || 'dev_secret',
-  { expiresIn: '8h' }
+  { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
 );
 
 /** POST /api/auth/login */

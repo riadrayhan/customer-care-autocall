@@ -16,6 +16,7 @@
     "express-rate-limit": "^7.1.5",
     "firebase-admin": "^12.0.0",
     "jsonwebtoken": "^9.0.2",
+    "mpg123-decoder": "^1.0.3",
     "socket.io": "^4.6.1",
     "uuid": "^9.0.0",
     "winston": "^3.11.0"
@@ -23,5 +24,7 @@
   "devDependencies": {
     "nodemon": "^3.0.2"
   },
-  "engines": { "node": ">=18.0.0" }
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

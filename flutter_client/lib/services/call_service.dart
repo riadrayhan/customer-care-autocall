@@ -7,6 +7,7 @@
 ///   4. server relays admin's webrtc_offer → we createAnswer & send back
 ///   5. ICE candidates exchanged both ways → audio plays automatically
 ///   6. endCall() / server call_ended       → cleanup
+library;
 
 import 'dart:async';
 import 'dart:convert';

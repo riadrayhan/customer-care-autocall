@@ -11,8 +11,11 @@ const logger                        = require('./utils/logger');
 const { setupSocketHandlers }       = require('./services/socketService');
 const { authRoutes }                = require('./controllers/authController');
 const { callRoutes, injectIo }      = require('./controllers/callController');
+const { dialerRoutes, injectIo: injectDialerIo } = require('./controllers/dialerController');
 const { userRoutes }                = require('./controllers/userController');
 const { adminRoutes }               = require('./controllers/adminController');
+const { sipRoutes }                 = require('./controllers/sipController');
+const { voiceAgentRoutes, startAgent } = require('./controllers/voiceAgentController');
 const { authMiddleware }            = require('./middleware/auth');
 const callManager                   = require('./services/callManager');
 const pushService                   = require('./services/pushService');
@@ -33,6 +36,7 @@ const io = new Server(httpServer, {
 });
 
 injectIo(io);
+injectDialerIo(io);
 
 // ── Middlewares ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
@@ -57,8 +61,11 @@ app.use('/api/auth/login', rateLimit({
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',  authRoutes);
 app.use('/api/calls', authMiddleware, callRoutes);
+app.use('/api/sim-calls', authMiddleware, dialerRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/admins', authMiddleware, adminRoutes);
+app.use('/api/sip',    authMiddleware, sipRoutes);
+app.use('/api/voice-agent', authMiddleware, voiceAgentRoutes);
 
 /** GET /health — Render health check */
 app.get('/health', (_req, res) => {
@@ -166,6 +173,9 @@ app.get('/api/docs', (_req, res) => {
       client_to_server: [
         'register_user { userId }',
         'register_admin { adminId?, name? }',
+        'register_dialer { dialerId?, name? }',
+        'dialer_state { state: "idle"|"busy" }',
+        'sim_call_state { jobId, state, duration?, error? }',
         'initiate_call { userId, message?, callerName?, autoMessage? }',
         'bulk_call { userIds[], message?, autoMessage? }',
         'call_answer { callId }',
@@ -186,6 +196,17 @@ app.get('/api/docs', (_req, res) => {
       server_to_client: [
         'registered',
         'admin_registered',
+        'dialer_registered { dialerId, socketId }',
+        'sim_dial { jobId, phoneNumber, message?, userId? }',
+        'sim_dial_cancel { jobId }',
+        'sim_job_queued { jobId, phoneNumber, userId? }',
+        'sim_job_dispatched { jobId, phoneNumber, dialerId, userId? }',
+        'sim_job_state { jobId, state, phoneNumber, dialerId }',
+        'sim_job_completed { jobId, state, duration, phoneNumber, dialerId, error? }',
+        'sim_stats_update',
+        'dialer_online { dialerId, socketId, name }',
+        'dialer_offline { dialerId, socketId }',
+        'dialer_state { dialerId, socketId, state }',
         'incoming_call { callId, callerName, message, retryCount, ts }',
         'call_ringing { callId, userId }',
         'call_queued { callId, userId, retryCount }',
@@ -235,6 +256,12 @@ app.get('/api/docs', (_req, res) => {
       'GET  /api/calls/retry-queue',
       'GET  /api/calls/:callId',
       'POST /api/calls/:callId/end',
+      'POST /api/sim-calls/dispatch',
+      'POST /api/sim-calls/bulk',
+      'POST /api/sim-calls/:jobId/cancel',
+      'GET  /api/sim-calls/dialers',
+      'GET  /api/sim-calls/queue',
+      'GET  /api/sim-calls/history',
       'POST /api/calls/:callId/retry',
       'GET  /health',
     ],
@@ -255,6 +282,9 @@ const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   logger.info(`AutoCall Backend v2 started`, { port: PORT, env: process.env.NODE_ENV || 'development' });
   logger.info(`Docs: http://localhost:${PORT}/api/docs`);
+  // Boot the SIP voice agent (REGISTER to the office PBX). Errors are
+  // logged but do not crash the server — the rest of the app keeps working.
+  startAgent().catch(e => logger.error('VoiceAgent boot error', { error: e.message }));
 });
 
 // ── Graceful shutdown — flush JSON DBs ────────────────────────────────────────

@@ -18,8 +18,9 @@
  *  Either side ──end_call──▶ room broadcast call_ended
  */
 
-const callManager = require('./callManager');
-const logger      = require('../utils/logger');
+const callManager   = require('./callManager');
+const dialerManager = require('./dialerManager');
+const logger        = require('../utils/logger');
 
 const validate = (socket, data, fields) => {
   for (const f of fields) {
@@ -31,8 +32,9 @@ const validate = (socket, data, fields) => {
   return true;
 };
 
-const callRoom  = id => `call:${id}`;
+const callRoom   = id => `call:${id}`;
 const ADMIN_ROOM = 'admins';
+const DIALER_ROOM = 'dialers';
 
 function setupSocketHandlers(io) {
 
@@ -105,6 +107,69 @@ function setupSocketHandlers(io) {
   callManager.on('user:offline', ({ userId }) => {
     io.to(ADMIN_ROOM).emit('user_offline', { userId, ts: Date.now() });
     io.to(ADMIN_ROOM).emit('stats_update', callManager.getStats());
+  });
+
+  // ── DialerManager events → Socket.io ──────────────────────────────────────
+
+  dialerManager.on('job:dispatched', job => {
+    if (job.assignedSocketId) {
+      io.to(job.assignedSocketId).emit('sim_dial', {
+        jobId      : job.jobId,
+        phoneNumber: job.phoneNumber,
+        message    : job.message,
+        userId     : job.userId,
+      });
+    }
+    io.to(ADMIN_ROOM).emit('sim_job_dispatched', {
+      jobId: job.jobId, phoneNumber: job.phoneNumber,
+      dialerId: job.assignedDialerId, userId: job.userId,
+    });
+    io.to(ADMIN_ROOM).emit('sim_stats_update', dialerManager.getStats());
+  });
+
+  dialerManager.on('job:queued', job => {
+    io.to(ADMIN_ROOM).emit('sim_job_queued', {
+      jobId: job.jobId, phoneNumber: job.phoneNumber, userId: job.userId,
+    });
+    io.to(ADMIN_ROOM).emit('sim_stats_update', dialerManager.getStats());
+  });
+
+  dialerManager.on('job:state', job => {
+    io.to(ADMIN_ROOM).emit('sim_job_state', {
+      jobId: job.jobId, state: job.state,
+      phoneNumber: job.phoneNumber, dialerId: job.assignedDialerId,
+    });
+  });
+
+  dialerManager.on('job:completed', job => {
+    io.to(ADMIN_ROOM).emit('sim_job_completed', {
+      jobId: job.jobId, state: job.state, duration: job.duration,
+      phoneNumber: job.phoneNumber, dialerId: job.assignedDialerId, error: job.error,
+    });
+    io.to(ADMIN_ROOM).emit('sim_stats_update', dialerManager.getStats());
+  });
+
+  dialerManager.on('job:cancelled', job => {
+    io.to(ADMIN_ROOM).emit('sim_job_completed', {
+      jobId: job.jobId, state: 'cancelled',
+      phoneNumber: job.phoneNumber, error: job.error,
+    });
+    // Notify the assigned dialer to abort if still active on it.
+    if (job.assignedSocketId) {
+      io.to(job.assignedSocketId).emit('sim_dial_cancel', { jobId: job.jobId });
+    }
+  });
+
+  dialerManager.on('dialer:online', d => {
+    io.to(ADMIN_ROOM).emit('dialer_online', d);
+    io.to(ADMIN_ROOM).emit('sim_stats_update', dialerManager.getStats());
+  });
+  dialerManager.on('dialer:offline', d => {
+    io.to(ADMIN_ROOM).emit('dialer_offline', d);
+    io.to(ADMIN_ROOM).emit('sim_stats_update', dialerManager.getStats());
+  });
+  dialerManager.on('dialer:state', d => {
+    io.to(ADMIN_ROOM).emit('dialer_state', d);
   });
 
   // ── Per-socket handlers ───────────────────────────────────────────────────
@@ -246,10 +311,35 @@ function setupSocketHandlers(io) {
     // Heartbeat
     socket.on('ping', () => socket.emit('pong', { ts: Date.now() }));
 
+    // ── Dialer (SIM phone) events ───────────────────────────────────────────
+    socket.on('register_dialer', (data = {}) => {
+      const id = dialerManager.registerDialer(socket.id, {
+        dialerId: data.dialerId, name: data.name,
+      });
+      socket.join(DIALER_ROOM);
+      socket.emit('dialer_registered', { ok: true, dialerId: id, socketId: socket.id });
+    });
+
+    socket.on('dialer_state', (data = {}) => {
+      if (!validate(socket, data, ['state'])) return;
+      dialerManager.updateDialerState(socket.id, data.state);
+    });
+
+    socket.on('sim_call_state', (data = {}) => {
+      if (!validate(socket, data, ['jobId', 'state'])) return;
+      dialerManager.reportState(socket.id, {
+        jobId   : data.jobId,
+        state   : data.state,
+        duration: data.duration,
+        error   : data.error,
+      });
+    });
+
     // Disconnect
     socket.on('disconnect', reason => {
       logger.info('Socket disconnected', { socketId: socket.id, reason });
       callManager.removeSocket(socket.id);
+      dialerManager.removeSocket(socket.id);
     });
   });
 

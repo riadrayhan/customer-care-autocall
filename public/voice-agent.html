@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Voice Agent · Outbound Call</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  header {
+    background: #1e293b; padding: 1rem 2rem; border-bottom: 1px solid #334155;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 1.2rem; }
+  header a { color: #60a5fa; text-decoration: none; font-size: 13px; }
+  main { padding: 2rem; max-width: 760px; margin: 0 auto; display: grid; gap: 1.25rem; }
+  .panel { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.25rem; }
+  .panel h2 { font-size: 1rem; margin-bottom: 1rem; color: #cbd5e1; }
+  label { font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px; }
+  input, select, textarea {
+    background: #0f172a; color: #e2e8f0; border: 1px solid #334155;
+    padding: 9px 11px; border-radius: 6px; font-size: 14px; width: 100%;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; }
+  button {
+    background: #2563eb; color: white; border: 0; padding: 10px 16px;
+    border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  button:hover { background: #1d4ed8; }
+  button.danger  { background: #dc2626; } button.danger:hover  { background: #b91c1c; }
+  button.success { background: #16a34a; } button.success:hover { background: #15803d; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .badge { display:inline-block;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600 }
+  .b-on  { background:#22c55e22;color:#4ade80 }
+  .b-off { background:#64748b22;color:#94a3b8 }
+  .b-ring{ background:#facc1522;color:#facc15; animation: pulse 1s infinite; }
+  .b-err { background:#ef444422;color:#f87171 }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+  #log { font-family: monospace; font-size: 11px; max-height: 260px; overflow-y: auto;
+         background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: .5rem; }
+  #log div { padding: 2px 0; border-bottom: 1px dashed #1e293b; }
+  #login { max-width: 380px; margin: 6rem auto; }
+  .hidden { display:none !important; }
+  .status-card {
+    padding: 1rem; background: #0f172a; border: 2px solid #334155; border-radius: 8px;
+    text-align: center;
+  }
+  .status-card.ringing { border-color: #facc15; }
+  .status-card.live    { border-color: #22c55e; }
+  .status-card.error   { border-color: #ef4444; }
+  .muted { color:#64748b; font-size:12px }
+  pre { background:#0f172a;border:1px solid #334155;border-radius:6px;padding:.5rem;
+        font-size:11px;overflow:auto;max-height:200px;color:#cbd5e1 }
+</style>
+</head>
+<body>
+
+<div id="login" class="panel">
+  <h2>Admin Login</h2>
+  <div style="margin-bottom:.75rem"><label>Username</label><input id="u" value="admin"/></div>
+  <div style="margin-bottom:.75rem"><label>Password</label><input id="p" type="password" value="admin123"/></div>
+  <button onclick="doLogin()" style="width:100%">Login</button>
+  <p id="loginErr" style="color:#f87171;margin-top:.5rem;font-size:12px"></p>
+</div>
+
+<header id="topbar" class="hidden">
+  <h1>📞 Voice Agent <span class="muted">— server-side SIP outbound</span></h1>
+  <div>
+    <a href="/admin.html">← Admin Panel</a>
+    <span style="margin:0 .5rem;color:#475569">|</span>
+    <span id="sipState" class="badge b-off">SIP: unknown</span>
+    <button onclick="logout()" style="background:#475569;margin-left:.75rem">Logout</button>
+  </div>
+</header>
+
+<main id="dash" class="hidden">
+
+  <section class="panel">
+    <h2>SIP Account (server-side)</h2>
+    <div id="sipInfo" class="muted">Loading…</div>
+    <div style="margin-top:.75rem;display:flex;gap:.5rem">
+      <button class="success" onclick="apiRegister()">Re-register</button>
+      <button onclick="refreshStatus()" style="background:#475569">Refresh status</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Inbound AI Voice Agent</h2>
+    <div id="inboundInfo" class="muted">Loading…</div>
+    <div id="transcript" style="margin-top:.75rem;max-height:260px;overflow-y:auto;
+         background:#0f172a;border:1px solid #334155;border-radius:6px;padding:.5rem;font-size:13px"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Place Outbound Call</h2>
+
+    <div style="margin-bottom:.75rem">
+      <label>Phone number to dial</label>
+      <input id="dialNumber" placeholder="e.g. 01XXXXXXXXX or 8801XXXXXXXXX"/>
+    </div>
+
+    <div class="row" style="margin-bottom:.75rem">
+      <div>
+        <label>Voice agent script (TTS)</label>
+        <textarea id="ttsText" rows="5">আসসালামু আলাইকুম। সহজ মোবাইল থেকে সালমা বলছি। স্যার আপনার ৩ টা কিস্তি বাকি আছে, দয়া করে আজকের মধ্যে পরিশোধ করুন। ধন্যবাদ।</textarea>
+      </div>
+      <div>
+        <label>Language</label>
+        <select id="ttsLang">
+          <option value="bn" selected>Bangla</option>
+          <option value="en">English</option>
+          <option value="hi">Hindi</option>
+        </select>
+        <label style="margin-top:.75rem">Repeat</label>
+        <select id="repeatCount">
+          <option value="1" selected>Speak once</option>
+          <option value="2">Repeat 2×</option>
+          <option value="3">Repeat 3×</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:.5rem">
+      <button id="btnStart" class="success" style="flex:1" onclick="startCall()">▶ Start Call</button>
+      <button id="btnSpeak" onclick="speakNow()">🔊 Speak again</button>
+      <button id="btnHangup" class="danger" onclick="hangup()">■ Hang up</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Status</h2>
+    <div id="callCard" class="status-card">Idle</div>
+    <pre id="statusJson" style="margin-top:.75rem">{}</pre>
+  </section>
+
+  <section class="panel">
+    <h2>Activity Log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+let token = localStorage.getItem('token');
+let admin = null;
+let pollTimer = null;
+
+const $   = id => document.getElementById(id);
+const log = (m, c='#94a3b8') => {
+  const d = document.createElement('div');
+  d.innerHTML = `<span style="color:#64748b">${new Date().toLocaleTimeString()}</span> <span style="color:${c}">${m}</span>`;
+  $('log').prepend(d);
+};
+
+function api(path, opts = {}) {
+  return fetch(path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + token,
+      ...(opts.headers || {}),
+    },
+  }).then(async r => {
+    const text = await r.text();
+    let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    if (!r.ok) throw new Error(json.error || `HTTP ${r.status}`);
+    return json;
+  });
+}
+
+async function doLogin() {
+  const username = $('u').value, password = $('p').value;
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const d = await r.json();
+    if (!r.ok) { $('loginErr').textContent = d.error || 'Login failed'; return; }
+    token = d.token; admin = d.admin;
+    localStorage.setItem('token', token);
+    localStorage.setItem('admin', JSON.stringify(admin));
+    boot();
+  } catch (e) { $('loginErr').textContent = e.message; }
+}
+function logout() {
+  localStorage.clear();
+  if (pollTimer) clearInterval(pollTimer);
+  location.reload();
+}
+
+async function boot() {
+  admin = admin || JSON.parse(localStorage.getItem('admin') || 'null');
+  if (!admin) return;
+  $('login').classList.add('hidden');
+  $('topbar').classList.remove('hidden');
+  $('dash').classList.remove('hidden');
+
+  try {
+    const cfg = await api('/api/sip/config');
+    $('sipInfo').innerHTML =
+      `Extension <b>${cfg.extension}</b> · Host <b>${cfg.host}</b> · Display <b>${cfg.displayName}</b>`;
+    log(`SIP config loaded for ext ${cfg.extension}@${cfg.host}`, '#4ade80');
+  } catch (e) {
+    if (String(e.message).includes('401') || String(e.message).includes('403')) return logout();
+    log('Config load failed: ' + e.message, '#f87171');
+  }
+  await refreshStatus();
+  pollTimer = setInterval(refreshStatus, 2000);
+}
+
+function setSipBadge(s) {
+  const el = $('sipState');
+  if (!s) { el.textContent = 'SIP: unknown'; el.className = 'badge b-off'; return; }
+  if (s.registered) { el.textContent = 'SIP: registered'; el.className = 'badge b-on'; return; }
+  if (s.lastError)  { el.textContent = 'SIP: ' + (s.lastError.length > 50 ? s.lastError.slice(0,50)+'…' : s.lastError); el.className = 'badge b-err'; return; }
+  el.textContent = 'SIP: not registered'; el.className = 'badge b-off';
+}
+
+function setCallCard(card) {
+  const el = $('callCard');
+  if (!card) { el.textContent = 'Idle'; el.className = 'status-card'; return; }
+  const s = card.state;
+  let txt;
+  if (s === 'inviting') { txt = `Inviting ${card.number}…`; el.className = 'status-card ringing'; }
+  else if (s === 'ringing') { txt = `Ringing ${card.number}…`; el.className = 'status-card ringing'; }
+  else if (s === 'live') { txt = `In call with ${card.number} · ${card.duration||0}s`; el.className = 'status-card live'; }
+  else { txt = `${s} · ${card.number}`; el.className = 'status-card'; }
+  el.textContent = txt;
+}
+
+let _lastCallState = null;
+async function refreshStatus() {
+  try {
+    const s = await api('/api/voice-agent/status');
+    setSipBadge(s.sip);
+    setCallCard(s.call);
+    setInboundInfo(s.inbound);
+    renderTranscript(s.inbound?.transcript || []);
+    $('statusJson').textContent = JSON.stringify(s, null, 2);
+    const cs = s.call?.state || 'idle';
+    if (cs !== _lastCallState) {
+      log('Call state → ' + cs, cs === 'live' ? '#4ade80' : (cs === 'idle' ? '#94a3b8' : '#facc15'));
+      _lastCallState = cs;
+    }
+  } catch (e) {
+    if (String(e.message).includes('401') || String(e.message).includes('403')) return logout();
+  }
+}
+
+function setInboundInfo(inb) {
+  const el = $('inboundInfo');
+  if (!inb) { el.textContent = '—'; return; }
+  const dot = inb.ready
+    ? '<span class="badge b-on">READY</span>'
+    : '<span class="badge b-err">NOT READY</span>';
+  const ai = inb.aiConfigured
+    ? '<span class="badge b-on">AI configured</span>'
+    : '<span class="badge b-err">AI key missing</span>';
+  const last = inb.lastCallAt
+    ? `Last call: <b>${inb.lastCallFrom || 'unknown'}</b> at ${new Date(inb.lastCallAt).toLocaleString()}`
+    : 'No incoming calls yet.';
+  const live = inb.dialogActive ? '<span class="badge b-ring">DIALOG LIVE</span>' : '';
+  el.innerHTML = `${dot} ${ai} ${live}<br/>
+    Dial-in number: <b>${inb.did}</b> · routes to extension <b>${admin?.extension || ''}</b><br/>
+    ${last}`;
+}
+
+function renderTranscript(items) {
+  const box = $('transcript');
+  if (!items.length) { box.innerHTML = '<div class="muted">No conversation yet. Call the dial-in number above to test.</div>'; return; }
+  box.innerHTML = items.map(it => {
+    const t = new Date(it.ts).toLocaleTimeString();
+    const color = it.role === 'agent' ? '#4ade80' : it.role === 'caller' ? '#60a5fa' : '#94a3b8';
+    const label = it.role === 'agent' ? '🤖 AI' : it.role === 'caller' ? '📞 Caller' : '·';
+    return `<div style="padding:3px 0;border-bottom:1px dashed #1e293b">
+      <span style="color:#64748b">${t}</span>
+      <span style="color:${color};font-weight:600;margin:0 .35rem">${label}</span>
+      <span>${escapeHtml(it.text)}</span>
+    </div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+async function apiRegister() {
+  log('Triggering REGISTER…');
+  try {
+    const r = await api('/api/voice-agent/register', { method: 'POST' });
+    log('REGISTER ok', '#4ade80');
+    setSipBadge(r.status);
+  } catch (e) { log('REGISTER failed: ' + e.message, '#f87171'); }
+}
+
+async function startCall() {
+  const number = $('dialNumber').value.trim();
+  const text   = $('ttsText').value.trim();
+  const lang   = $('ttsLang').value;
+  const repeat = Number($('repeatCount').value) || 1;
+  if (!number) return alert('Enter phone number');
+  if (!text)   return alert('Enter TTS script');
+  $('btnStart').disabled = true;
+  try {
+    const r = await api('/api/voice-agent/call', {
+      method: 'POST', body: JSON.stringify({ number, text, lang, repeat }),
+    });
+    log(`→ Calling ${number} [${r.callId.slice(0,8)}]`, '#facc15');
+  } catch (e) {
+    log('Start-call failed: ' + e.message, '#f87171');
+    alert('Start-call failed: ' + e.message);
+  } finally { $('btnStart').disabled = false; }
+}
+
+async function speakNow() {
+  const text   = $('ttsText').value.trim();
+  const lang   = $('ttsLang').value;
+  const repeat = Number($('repeatCount').value) || 1;
+  if (!text) return;
+  try {
+    await api('/api/voice-agent/speak', {
+      method: 'POST', body: JSON.stringify({ text, lang, repeat }),
+    });
+    log('Speak queued', '#4ade80');
+  } catch (e) { log('Speak failed: ' + e.message, '#f87171'); }
+}
+
+async function hangup() {
+  try {
+    await api('/api/voice-agent/hangup', { method: 'POST' });
+    log('Hangup sent', '#94a3b8');
+  } catch (e) { log('Hangup failed: ' + e.message, '#f87171'); }
+}
+
+if (token) boot();
+</script>
+</body>
+</html>

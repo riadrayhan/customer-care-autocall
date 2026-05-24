@@ -73,6 +73,7 @@
     <span>Active calls: <b id="s-active">0</b></span>
     <span>Pending: <b id="s-pending">0</b></span>
     <span>Answered: <b id="s-answered">0</b></span>
+    <a href="/voice-agent.html" style="color:#60a5fa;text-decoration:none;font-weight:600">📞 Voice Agent</a>
     <button onclick="logout()" style="background:#475569">Logout</button>
   </div>
 </header>
@@ -147,6 +148,33 @@
     <div class="panel">
       <h2>Activity Log</h2>
       <div id="log"></div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+        <h2 style="margin:0">SIM Dialer (real calls)</h2>
+        <span style="font-size:11px;color:#94a3b8">
+          Online: <b id="sim-dialers-online" style="color:#22c55e">0</b> ·
+          Idle: <b id="sim-dialers-idle" style="color:#22c55e">0</b> ·
+          Queued: <b id="sim-queued" style="color:#facc15">0</b> ·
+          Active: <b id="sim-active" style="color:#60a5fa">0</b>
+        </span>
+      </div>
+      <div id="sim-dialer-list" style="font-size:12px;margin-bottom:.75rem;color:#94a3b8">
+        No dialer phones connected.
+      </div>
+      <div class="row" style="margin-bottom:.4rem">
+        <label style="min-width:55px">Number</label>
+        <input id="sim-phone" placeholder="+8801XXXXXXXXX" style="flex:1"/>
+        <select id="sim-dialer-select" style="width:auto;flex:0 0 130px">
+          <option value="">Any dialer</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:.4rem;margin-bottom:.5rem">
+        <button class="success" style="flex:1" onclick="dispatchSim()">📞 Dispatch dial</button>
+        <button onclick="bulkSimAllEmiDue()" title="Dispatch SIM call to every EMI-due user">Bulk EMI dial</button>
+      </div>
+      <div id="sim-log" style="font-family:monospace;font-size:11px;max-height:160px;overflow-y:auto;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:.5rem"></div>
     </div>
   </aside>
 
@@ -393,7 +421,7 @@ async function emiAutoCall() {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       log(`Bulk EMI call FAILED (HTTP ${r.status}): ${d.error || 'unknown'}`, '#f87171');
-      if (r.status === 401) { alert('Session expired. Please login again.'); logout(); }
+      if (r.status === 401 || r.status === 403) { alert('Session expired. Please login again.'); logout(); }
       return;
     }
     log(`Bulk EMI call: ${d.count ?? 0} users (${d.message || 'fired'})`, '#4ade80');
@@ -553,6 +581,131 @@ async function speakTTS() {
 
 // Auto-resume session
 if (token) bootDashboard();
+
+//─────────────────────────────────────────────────────────────────────
+// SIM Dialer (real cellular calls)
+//─────────────────────────────────────────────────────────────────────
+const simLog = (m, c='#94a3b8') => {
+  const el = $('sim-log'); if (!el) return;
+  const d = document.createElement('div');
+  d.innerHTML = `<span style="color:#64748b">${new Date().toLocaleTimeString()}</span> <span style="color:${c}">${m}</span>`;
+  el.prepend(d);
+  while (el.children.length > 80) el.removeChild(el.lastChild);
+};
+
+function updateSimStats(s) {
+  if (!s) return;
+  $('sim-dialers-online').textContent = s.dialersOnline ?? 0;
+  $('sim-dialers-idle').textContent   = s.idleDialers   ?? 0;
+  $('sim-queued').textContent         = s.queued        ?? 0;
+  $('sim-active').textContent         = s.active        ?? 0;
+}
+
+async function loadDialers() {
+  try {
+    const r = await fetch('/api/sim-calls/dialers', { headers: { Authorization: 'Bearer ' + token }});
+    if (!r.ok) return;
+    const d = await r.json();
+    updateSimStats(d.stats);
+    const list = d.dialers || [];
+    const box = $('sim-dialer-list');
+    const sel = $('sim-dialer-select');
+    if (list.length === 0) {
+      box.textContent = 'No dialer phones connected.';
+    } else {
+      box.innerHTML = list.map(x =>
+        `<div>📱 <b>${x.name}</b> <span style="color:#64748b">(${x.dialerId})</span>
+         <span class="badge ${x.state==='idle'?'ok':'due'}">${x.state}</span></div>`
+      ).join('');
+    }
+    // Keep current selection if still valid.
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Any dialer</option>' +
+      list.map(x => `<option value="${x.dialerId}">${x.name}</option>`).join('');
+    if (list.some(x => x.dialerId === cur)) sel.value = cur;
+  } catch (e) { simLog('loadDialers err: ' + e.message, '#f87171'); }
+}
+
+async function dispatchSim(phoneOverride, userIdOverride) {
+  const phone    = phoneOverride || $('sim-phone').value.trim();
+  const dialerId = $('sim-dialer-select').value || undefined;
+  if (!phone && !userIdOverride) { alert('Enter a phone number'); return; }
+  try {
+    const r = await fetch('/api/sim-calls/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({
+        phoneNumber: phone || undefined,
+        userId     : userIdOverride,
+        dialerId,
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { simLog('Dispatch FAILED: ' + (d.error || 'HTTP ' + r.status), '#f87171'); return; }
+    simLog(`→ Dispatched ${phone || '(user '+userIdOverride+')'} [job ${d.jobId.slice(0,8)}]`, '#4ade80');
+    if (!phoneOverride) $('sim-phone').value = '';
+  } catch (e) { simLog('Dispatch err: ' + e.message, '#f87171'); }
+}
+
+async function bulkSimAllEmiDue() {
+  if (!confirm('Dial via SIM ALL users with EMI due today/tomorrow?')) return;
+  try {
+    // Pull EMI-due users and bulk-dispatch their phone numbers.
+    const r1 = await fetch('/api/users/emi-due?daysAhead=1',
+      { headers: { Authorization: 'Bearer ' + token } });
+    if (!r1.ok) { simLog('Cannot load EMI-due users', '#f87171'); return; }
+    const users = await r1.json();
+    if (!users.length) { simLog('No EMI-due users', '#94a3b8'); return; }
+    const dialerId = $('sim-dialer-select').value || undefined;
+    const r2 = await fetch('/api/sim-calls/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ userIds: users.map(u => u.id), dialerId }),
+    });
+    const d = await r2.json().catch(() => ({}));
+    if (!r2.ok) { simLog('Bulk dispatch FAILED: ' + (d.error || 'HTTP ' + r2.status), '#f87171'); return; }
+    simLog(`Bulk SIM dispatch: ${d.count} numbers queued`, '#4ade80');
+  } catch (e) { simLog('Bulk SIM err: ' + e.message, '#f87171'); }
+}
+
+// Hook SIM dialer socket events once a socket is up.
+function attachSimSocketHandlers() {
+  if (!socket) return;
+  socket.on('sim_stats_update',  updateSimStats);
+  socket.on('dialer_online',  d => { simLog(`▲ Dialer online: ${d.name || d.dialerId}`, '#4ade80'); loadDialers(); });
+  socket.on('dialer_offline', d => { simLog(`▼ Dialer offline: ${d.dialerId}`, '#94a3b8'); loadDialers(); });
+  socket.on('dialer_state',   d => { loadDialers(); });
+  socket.on('sim_job_queued',     d => simLog(`⏸ Queued ${d.phoneNumber} (no idle dialer)`, '#94a3b8'));
+  socket.on('sim_job_dispatched', d => simLog(`→ ${d.phoneNumber} dispatched to ${d.dialerId}`, '#facc15'));
+  socket.on('sim_job_state',      d => simLog(`· ${d.phoneNumber}: ${d.state}`, '#cbd5e1'));
+  socket.on('sim_job_completed',  d => {
+    const ok = d.state === 'ended';
+    simLog(`${ok?'✓':'✗'} ${d.phoneNumber} → ${d.state}${d.duration?` (${d.duration}s)`:''}${d.error?` [${d.error}]`:''}`,
+      ok ? '#4ade80' : '#f87171');
+  });
+}
+
+// Patch into bootDashboard: also load dialers and attach SIM handlers.
+let _simHooked = false;
+function _ensureSimHooks() {
+  if (_simHooked) return;
+  if (!socket) return;
+  attachSimSocketHandlers();
+  loadDialers();
+  setInterval(loadDialers, 20000);
+  _simHooked = true;
+}
+const _origBoot = bootDashboard;
+bootDashboard = async function() {
+  await _origBoot.apply(this, arguments);
+  _ensureSimHooks();
+};
+// Also cover the auto-resume (token) path where the ORIGINAL bootDashboard
+// may have already started executing before this patch ran.
+(function pollSim(){
+  if (socket) _ensureSimHooks();
+  if (!_simHooked) setTimeout(pollSim, 500);
+})();
 
 //─────────────────────────────────────────────────────────────────────
 // Admin management (superadmin only)

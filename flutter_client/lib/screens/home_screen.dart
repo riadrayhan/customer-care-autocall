@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/call_service.dart';
 import 'incoming_call_screen.dart';
+import 'dialer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,7 +14,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _serverCtrl = TextEditingController(
     text:
-        'http://192.168.68.96:3000', // PC LAN IP — change to Render URL for prod
+        'http://192.168.68.71:3000', // PC LAN IP — change to Render URL for prod
   );
   final _userIdCtrl = TextEditingController(text: 'user-001');
   CallService? _service;
@@ -92,7 +93,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AutoCall Client')),
+      appBar: AppBar(
+        title: const Text('AutoCall Client'),
+        actions: [
+          IconButton(
+            tooltip: 'SIM Dialer Mode',
+            icon: const Icon(Icons.sim_card),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const DialerScreen(),
+            )),
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
